@@ -2,13 +2,12 @@ package dev.pharsh.flutter_fling;
 
 import android.os.Handler;
 import android.os.Looper;
-
 import io.flutter.plugin.common.EventChannel;
 
 import java.util.ArrayList;
 
 /**
- * And implementation of {@link EventChannel.EventSink} which can wrap an underlying sink.
+ * An implementation of {@link EventChannel.EventSink} which can wrap an underlying sink.
  *
  * <p>It delivers messages immediately when downstream is available, but it queues messages before
  * the delegate event sink is set with setDelegate.
@@ -18,14 +17,12 @@ import java.util.ArrayList;
  */
 final class QueuingEventSink implements EventChannel.EventSink {
     private EventChannel.EventSink delegate;
-    private ArrayList<Object> eventQueue = new ArrayList<>();
+    private final ArrayList<Object> eventQueue = new ArrayList<>();
     private boolean done = false;
-    private Handler handler;
-
+    private final Handler handler = new Handler(Looper.getMainLooper());
 
     void setDelegate(EventChannel.EventSink delegate) {
         this.delegate = delegate;
-        handler = new Handler(Looper.getMainLooper());
         maybeFlush();
     }
 
@@ -45,13 +42,7 @@ final class QueuingEventSink implements EventChannel.EventSink {
     @Override
     public void success(Object event) {
         enqueue(event);
-        handler.post(new Runnable() {
-            @Override
-            public void run() {
-                maybeFlush();
-            }
-        });
-
+        handler.post(this::maybeFlush);
     }
 
     private void enqueue(Object event) {
@@ -82,9 +73,9 @@ final class QueuingEventSink implements EventChannel.EventSink {
     }
 
     private static class ErrorEvent {
-        String code;
-        String message;
-        Object details;
+        final String code;
+        final String message;
+        final Object details;
 
         ErrorEvent(String code, String message, Object details) {
             this.code = code;

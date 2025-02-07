@@ -13,20 +13,20 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
-import io.flutter.plugin.common.PluginRegistry.Registrar;
 
 /**
  * FlutterFlingPlugin
  */
-public class FlutterFlingPlugin implements MethodCallHandler {
+public class FlutterFlingPlugin implements FlutterPlugin, MethodCallHandler {
     private static final String DISCOVERY_CONTROLLER_STREAM = "flutter_fling/discoveryControllerStream";
     private static final String PLAYER_STATE_STREAM = "flutter_fling/playerStateStream";
-    private final FlingSdk flingSdk;
+    private FlingSdk flingSdk;
 
     static class Status {
         long mPosition;
@@ -34,15 +34,11 @@ public class FlutterFlingPlugin implements MethodCallHandler {
         MediaPlayerStatus.MediaCondition mCond;
     }
 
-    private FlutterFlingPlugin(Registrar registrar) {
-        flingSdk = new FlingSdk(registrar);
-    }
-
-    public static void registerWith(Registrar registrar) {
-        final FlutterFlingPlugin flutterFlingPlugin = new FlutterFlingPlugin(registrar);
-
-        final MethodChannel channel = new MethodChannel(registrar.messenger(), "flutter_fling");
-        channel.setMethodCallHandler(flutterFlingPlugin);
+    @Override
+    public void onAttachedToEngine(FlutterPluginBinding binding) {
+        flingSdk = new FlingSdk(binding.getApplicationContext(), binding.getBinaryMessenger());
+        MethodChannel channel = new MethodChannel(binding.getBinaryMessenger(), "flutter_fling");
+        channel.setMethodCallHandler(this);
     }
 
     @Override
@@ -64,9 +60,9 @@ public class FlutterFlingPlugin implements MethodCallHandler {
                 final String playerUid = call.argument("deviceUid");
                 final String mediaSourceUri = call.argument("mediaSourceUri");
                 final String mediaSourceTitle = call.argument("mediaSourceTitle");
-                if (playerUid == null || mediaSourceUri == null || mediaSourceTitle == null)
+                if (playerUid == null || mediaSourceUri == null || mediaSourceTitle == null) {
                     result.error("playerUid/mediaSourceUri/mediaSourceTitle cannot be null", "", null);
-                else {
+                } else {
                     flingSdk.setPlayer(playerUid);
                     flingSdk.fling(mediaSourceUri, mediaSourceTitle);
                     result.success(null);
@@ -97,7 +93,7 @@ public class FlutterFlingPlugin implements MethodCallHandler {
                 break;
             case "mutePlayer":
                 String muteState = call.argument("muteState");
-                flingSdk.setMute(muteState.equals("true"));
+                flingSdk.setMute(muteState != null && muteState.equals("true"));
                 result.success(null);
                 break;
             case "seekForwardPlayer":
@@ -113,8 +109,9 @@ public class FlutterFlingPlugin implements MethodCallHandler {
                 if (pos != null) {
                     flingSdk.seekTo(Long.parseLong(pos));
                     result.success(null);
-                } else
+                } else {
                     result.error("position is null", "", null);
+                }
                 break;
             default:
                 result.notImplemented();
@@ -123,7 +120,7 @@ public class FlutterFlingPlugin implements MethodCallHandler {
     }
 
     static class FlingSdk {
-        final Registrar registrar;
+        private final Context context;
         private Set<RemoteMediaPlayer> mPlayers;
         private DiscoveryController mController;
         private RemoteMediaPlayer mCurrentDevice;
@@ -134,23 +131,22 @@ public class FlutterFlingPlugin implements MethodCallHandler {
         private QueuingEventSink playerStateEventSink = new QueuingEventSink();
         private EventChannel playerStateEventChannel;
 
-        FlingSdk(Registrar registrar) {
-            this.registrar = registrar;
-            mController = new DiscoveryController(registrar.context());
-            discoveryControllerEventChannel = new EventChannel(registrar.messenger(), DISCOVERY_CONTROLLER_STREAM);
-            discoveryControllerEventChannel.setStreamHandler(
-                    new EventChannel.StreamHandler() {
-                        @Override
-                        public void onListen(Object o, EventChannel.EventSink sink) {
-                            discoveryControllerEventSink.setDelegate(sink);
-                        }
+        FlingSdk(Context context, BinaryMessenger messenger) {
+            this.context = context;
+            mController = new DiscoveryController(context);
+            discoveryControllerEventChannel = new EventChannel(messenger, DISCOVERY_CONTROLLER_STREAM);
+            discoveryControllerEventChannel.setStreamHandler(new EventChannel.StreamHandler() {
+                @Override
+                public void onListen(Object o, EventChannel.EventSink sink) {
+                    discoveryControllerEventSink.setDelegate(sink);
+                }
 
-                        @Override
-                        public void onCancel(Object o) {
-                            discoveryControllerEventSink.setDelegate(null);
-                        }
-                    });
-            playerStateEventChannel = new EventChannel(registrar.messenger(), PLAYER_STATE_STREAM);
+                @Override
+                public void onCancel(Object o) {
+                    discoveryControllerEventSink.setDelegate(null);
+                }
+            });
+            playerStateEventChannel = new EventChannel(messenger, PLAYER_STATE_STREAM);
             playerStateEventChannel.setStreamHandler(new EventChannel.StreamHandler() {
                 @Override
                 public void onListen(Object o, EventChannel.EventSink sink) {
@@ -165,13 +161,11 @@ public class FlutterFlingPlugin implements MethodCallHandler {
         }
 
         void startDiscoveryController() {
-//            stopDiscoveryController();
             mPlayers = new HashSet<>();
 
             this.mController.start("amzn.thin.pl", new DiscoveryController.IDiscoveryListener() {
                 @Override
                 public void playerDiscovered(RemoteMediaPlayer player) {
-                    //add media player to the application’s player list.
                     Log.v("FLUTTER_FLING", player.getName() + " discovered, adding to players...");
                     mPlayers.add(player);
                     Map<String, String> playerMap = new HashMap<>();
@@ -183,7 +177,6 @@ public class FlutterFlingPlugin implements MethodCallHandler {
 
                 @Override
                 public void playerLost(RemoteMediaPlayer player) {
-                    //remove media player from the application’s player list.
                     Log.v("FLUTTER_FLING", player.getName() + " lost, removing from players...");
                     mPlayers.remove(player);
                     Map<String, String> playerMap = new HashMap<>();
@@ -224,17 +217,15 @@ public class FlutterFlingPlugin implements MethodCallHandler {
             }
         }
 
-
         RemoteMediaPlayer getSelectedPlayer() {
-            if (mCurrentDevice != null) return mCurrentDevice;
-            else return null;
+            return mCurrentDevice;
         }
 
         void setPlayer(String uid) {
-            if (mCurrentDevice != null)
+            if (mCurrentDevice != null) {
                 mCurrentDevice.stop();
-            for (RemoteMediaPlayer player : mPlayers
-            ) {
+            }
+            for (RemoteMediaPlayer player : mPlayers) {
                 if (player.getUniqueIdentifier().equals(uid)) {
                     mCurrentDevice = player;
                     break;
@@ -273,24 +264,26 @@ public class FlutterFlingPlugin implements MethodCallHandler {
         }
 
         void seekForwardPlayer() {
-            if (mCurrentDevice != null)
+            if (mCurrentDevice != null) {
                 mCurrentDevice.seek(CustomMediaPlayer.PlayerSeekMode.Relative, 10000);
+            }
         }
 
         void seekBackPlayer() {
-            if (mCurrentDevice != null)
+            if (mCurrentDevice != null) {
                 mCurrentDevice.seek(CustomMediaPlayer.PlayerSeekMode.Relative, -10000);
+            }
         }
 
         void seekTo(long position) {
-            if (mCurrentDevice != null)
+            if (mCurrentDevice != null) {
                 mCurrentDevice.seek(CustomMediaPlayer.PlayerSeekMode.Absolute, position);
+            }
         }
 
         void setMute(boolean muteState) {
             if (mCurrentDevice != null) mCurrentDevice.setMute(muteState);
         }
-
 
         String getPlayerState() {
             if (this.mStatus.mState == null) return "null";
@@ -356,8 +349,4 @@ public class FlutterFlingPlugin implements MethodCallHandler {
             return cond;
         }
     }
-
-
 }
-
-

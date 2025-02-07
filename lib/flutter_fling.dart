@@ -1,10 +1,10 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_fling/remote_media_player.dart';
 
 enum PlayerDiscoveryStatus { Found, Lost }
+
 enum MediaState {
   NoSource,
   PreparingMedia,
@@ -15,6 +15,7 @@ enum MediaState {
   Finished,
   Error
 }
+
 enum MediaCondition {
   Good,
   WarningContent,
@@ -24,18 +25,18 @@ enum MediaCondition {
   ErrorUnknown
 }
 
-typedef void DiscoveryCallback(
+typedef DiscoveryCallback = void Function(
     PlayerDiscoveryStatus status, RemoteMediaPlayer player);
 
-typedef void PlayerStateCallback(
+typedef PlayerStateCallback = void Function(
     MediaState state, MediaCondition condition, int position);
 
 class FlutterFling {
-  static const MethodChannel _channel = const MethodChannel('flutter_fling');
-  static const _discoveryControllerChannel =
-      const EventChannel('flutter_fling/discoveryControllerStream');
-  static const _playerStateChannel =
-      const EventChannel('flutter_fling/playerStateStream');
+  static const MethodChannel _channel = MethodChannel('flutter_fling');
+  static const EventChannel _discoveryControllerChannel =
+      EventChannel('flutter_fling/discoveryControllerStream');
+  static const EventChannel _playerStateChannel =
+      EventChannel('flutter_fling/playerStateStream');
 
   static Future<void> startDiscoveryController(
       DiscoveryCallback callback) async {
@@ -51,7 +52,7 @@ class FlutterFling {
             RemoteMediaPlayer.fromJson(json));
       });
     } on PlatformException catch (e) {
-      print('error starting discovery: ${e.details}');
+      debugPrint('Error starting discovery: ${e.details}');
     }
   }
 
@@ -59,24 +60,22 @@ class FlutterFling {
       {required String mediaUri,
       required String mediaTitle,
       required RemoteMediaPlayer player}) async {
-    if (mediaUri != null && mediaTitle != null && player != null) {
-      try {
-        await _channel.invokeMethod('play', <String, dynamic>{
-          'mediaSourceUri': mediaUri,
-          'mediaSourceTitle': mediaTitle ?? 'Video',
-          'deviceUid': player.uid
-        });
-        _playerStateChannel.receiveBroadcastStream().listen((json) {
-          callback(
-              MediaState.values.firstWhere(
-                  (value) => value.toString() == 'MediaState.' + json['state']),
-              MediaCondition.values.firstWhere((value) =>
-                  value.toString() == 'MediaCondition.' + json['condition']),
-              json['position']);
-        });
-      } on PlatformException catch (e) {
-        print(e.details);
-      }
+    try {
+      await _channel.invokeMethod('play', <String, dynamic>{
+        'mediaSourceUri': mediaUri,
+        'mediaSourceTitle': mediaTitle,
+        'deviceUid': player.uid
+      });
+      _playerStateChannel.receiveBroadcastStream().listen((json) {
+        callback(
+            MediaState.values.firstWhere(
+                (value) => value.toString() == 'MediaState.' + json['state']),
+            MediaCondition.values.firstWhere((value) =>
+                value.toString() == 'MediaCondition.' + json['condition']),
+            json['position']);
+      });
+    } on PlatformException catch (e) {
+      debugPrint('Error playing media: ${e.details}');
     }
   }
 
@@ -84,7 +83,7 @@ class FlutterFling {
     try {
       await _channel.invokeMethod('removePlayerListener');
     } on PlatformException catch (e) {
-      print(e.details);
+      debugPrint('Error removing player listener: ${e.details}');
     }
   }
 
@@ -92,21 +91,17 @@ class FlutterFling {
     try {
       await _channel.invokeMethod('stopDiscoveryController');
     } on PlatformException catch (e) {
-      print('error stopping discovery: ${e.details}');
+      debugPrint('Error stopping discovery: ${e.details}');
     }
   }
 
   static Future<RemoteMediaPlayer?> get selectedPlayer async {
-    dynamic player;
     try {
-      player = await _channel.invokeMethod('getSelectedPlayer');
+      final player = await _channel.invokeMethod('getSelectedPlayer');
+      return player != null ? RemoteMediaPlayer.fromJson(player) : null;
     } on PlatformException catch (e) {
-      print(e.details);
-    }
-    if (player == null) {
+      debugPrint('Error getting selected player: ${e.details}');
       return null;
-    } else {
-      return RemoteMediaPlayer.fromJson(player);
     }
   }
 
@@ -114,7 +109,7 @@ class FlutterFling {
     try {
       await _channel.invokeMethod('stopPlayer');
     } on PlatformException catch (e) {
-      print(e.details);
+      debugPrint('Error stopping player: ${e.details}');
     }
   }
 
@@ -122,7 +117,7 @@ class FlutterFling {
     try {
       await _channel.invokeMethod('pausePlayer');
     } on PlatformException catch (e) {
-      print(e.details);
+      debugPrint('Error pausing player: ${e.details}');
     }
   }
 
@@ -130,16 +125,16 @@ class FlutterFling {
     try {
       await _channel.invokeMethod('playPlayer');
     } on PlatformException catch (e) {
-      print(e.details);
+      debugPrint('Error playing player: ${e.details}');
     }
   }
 
   static Future<void> mutePlayer(bool muteState) async {
     try {
       await _channel.invokeMethod('mutePlayer',
-          <String, dynamic>{'muteState': muteState ? 'true' : 'false'});
+          <String, dynamic>{'muteState': muteState.toString()});
     } on PlatformException catch (e) {
-      print(e.details);
+      debugPrint('Error muting player: ${e.details}');
     }
   }
 
@@ -147,7 +142,7 @@ class FlutterFling {
     try {
       await _channel.invokeMethod('seekForwardPlayer');
     } on PlatformException catch (e) {
-      print(e.details);
+      debugPrint('Error seeking forward: ${e.details}');
     }
   }
 
@@ -155,7 +150,7 @@ class FlutterFling {
     try {
       await _channel.invokeMethod('seekBackPlayer');
     } on PlatformException catch (e) {
-      print(e.details);
+      debugPrint('Error seeking back: ${e.details}');
     }
   }
 
@@ -164,7 +159,7 @@ class FlutterFling {
       await _channel.invokeMethod(
           'seekToPlayer', <String, String>{'position': position.toString()});
     } on PlatformException catch (e) {
-      print(e.details);
+      debugPrint('Error seeking to position: ${e.details}');
     }
   }
 }
